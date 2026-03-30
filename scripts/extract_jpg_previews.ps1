@@ -9,7 +9,7 @@ Write-Host "-----------------------------------------"
 Write-Host "Root folder: $root"
 
 if ($test) {
-    Write-Host "TEST MODE — limiting preview generation to test dataset"
+    Write-Host "TEST MODE — running on a limited dataset"
 }
 
 # Validate root exists
@@ -17,10 +17,10 @@ if (-not (Test-Path $root)) {
     throw "Root folder does not exist: $root"
 }
 
-# ExifTool path is expected to be in PATH or set by the orchestrator's environment
+# ExifTool must be available in PATH
 $exiftool = "exiftool"
 
-# Define preview output folder (inside root)
+# Define preview output folder inside the chosen root
 $previewRoot = Join-Path $root "_previews"
 
 # Create preview folder if needed
@@ -29,19 +29,21 @@ if (-not (Test-Path $previewRoot)) {
     New-Item -ItemType Directory -Path $previewRoot | Out-Null
 }
 
-# Get all image files (RAW + JPEG)
+# Collect image files
 $files = Get-ChildItem -Path $root -Recurse -File -Include *.jpg, *.jpeg, *.cr3, *.cr2
 
 Write-Host "Found $($files.Count) files to process"
 
 foreach ($file in $files) {
 
-    # Determine preview output path
+    # Compute relative path
     $relative = $file.FullName.Substring($root.Length).TrimStart('\')
-    $previewPath = Join-Path $previewRoot ($relative + ".jpg")
 
-    # Ensure preview subfolder exists
-    $previewDir = Split-Path $previewPath -Parent
+    # Compute preview output path
+    $previewPath = Join-Path $previewRoot ($relative + ".jpg")
+    $previewDir  = Split-Path $previewPath -Parent
+
+    # Ensure preview directory exists
     if (-not (Test-Path $previewDir)) {
         New-Item -ItemType Directory -Path $previewDir | Out-Null
     }
@@ -53,17 +55,17 @@ foreach ($file in $files) {
 
     Write-Host "Generating preview for: $relative"
 
-    # Generate preview using ExifTool
-    # -b = binary output
-    # -PreviewImage = extract embedded preview
-    # Redirect to file
-    & $exiftool -b -PreviewImage $file.FullName > $previewPath
+    # Extract preview bytes from ExifTool
+    $previewBytes = & $exiftool -b -PreviewImage "$($file.FullName)"
 
-    # If no preview was extracted, ExifTool outputs nothing
-    if ((Get-Item $previewPath).Length -eq 0) {
-        Write-Host "No embedded preview found — deleting empty file"
-        Remove-Item $previewPath
+    # If ExifTool produced nothing, skip
+    if (-not $previewBytes -or $previewBytes.Length -eq 0) {
+        Write-Host "No embedded preview found — skipping"
+        continue
     }
+
+    # Write preview file safely
+    Set-Content -Encoding Byte -Path "$previewPath" -Value $previewBytes
 }
 
 Write-Host "Preview generation complete."

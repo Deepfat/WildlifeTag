@@ -6,20 +6,22 @@ Write-Host "========================================="
 Write-Host " Wildlife Tagging Pipeline"
 Write-Host "========================================="
 
-# Load config
-$configPath = Join-Path $PSScriptRoot "config.json"
-$config = Get-Content $configPath | ConvertFrom-Json
+# Prompt for root folder
+$root = Read-Host "Enter the root folder containing photos"
 
-# Resolve root
-$root = $config.photoRoot
+# Expand relative paths
+$root = Resolve-Path $root
+
+# Validate
+if (-not (Test-Path $root)) {
+    throw "Root folder does not exist: $root"
+}
+
+Write-Host "Using root folder:"
+Write-Host "  $root"
 
 if ($test) {
-    $root = Join-Path $PSScriptRoot "test"
-    Write-Host "TEST MODE ENABLED — using test folder:"
-    Write-Host "  $root"
-} else {
-    Write-Host "Using full photo root:"
-    Write-Host "  $root"
+    Write-Host "TEST MODE ENABLED — pipeline will run in safe mode"
 }
 
 Write-Host "-----------------------------------------"
@@ -30,6 +32,7 @@ Write-Host "-----------------------------------------"
 Write-Host "[1/4] Generating previews..."
 .\generate-previews.ps1 -root $root -test:$test
 
+<#
 # Stage 2 — Classification
 Write-Host "[2/4] Running classification..."
 .\classify.ps1 -root $root -test:$test
@@ -41,7 +44,8 @@ Write-Host "[3/4] Tagging metadata..."
 # Stage 4 — Export
 Write-Host "[4/4] Exporting results..."
 .\export.ps1 -root $root -test:$test
+#>
 
 Write-Host "-----------------------------------------"
-Write-Host " Pipeline complete."
+Write-Host " Pipeline complete (preview stage only)."
 Write-Host "-----------------------------------------"
