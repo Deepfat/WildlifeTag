@@ -1,7 +1,14 @@
 param(
-    [string]$root = "D:\Photos",
-    [string]$exiftool = "C:\exiftool\exiftool.exe"
+    [string]$root,
+    [string]$exiftool
 )
+# Load config
+$configPath = Join-Path $PSScriptRoot "config.json"
+$config = Get-Content $configPath | ConvertFrom-Json
+
+# Apply config defaults only if parameters were not passed
+if (-not $root)     { $root     = $config.photoRoot }
+if (-not $exiftool) { $exiftool = $config.exiftoolPath }
 
 Write-Host "Extracting JPEG previews into jpg subfolders under $root"
 

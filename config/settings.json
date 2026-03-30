@@ -1,0 +1,8 @@
+{
+    "root": "P:\\Photos",
+    "preview_extension": ".jpg",
+    "raw_extension": ".CR3",
+    "xmp_extension": ".XMP",
+    "model_path": "models\\bird_model.pt",
+    "classification_output": "output\\classification.csv"
+}
