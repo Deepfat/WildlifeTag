@@ -1,0 +1,22 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VSCode settings
+.vscode/
+
+# Your ONNX models
+models/*.onnx
+models/**/*.onnx
+
+# Your test folder with sample CR3 files
+test/
+test/*.cr3
+test/**/*.cr3
