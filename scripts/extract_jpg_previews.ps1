@@ -1,72 +1,76 @@
 param(
+    [Parameter(Mandatory = $true)]
     [string]$root,
+
     [switch]$test
 )
 
-Write-Host "-----------------------------------------"
-Write-Host " PREVIEW GENERATION"
-Write-Host "-----------------------------------------"
+Write-Host "-----------------------------------------" -ForegroundColor Cyan
+Write-Host " PREVIEW GENERATION using ImageMagick" -ForegroundColor Cyan
+Write-Host "-----------------------------------------" -ForegroundColor Cyan
 Write-Host "Root folder: $root"
 
-if ($test) {
-    Write-Host "TEST MODE — running on a limited dataset"
+# -----------------------------------------
+# Logging
+# -----------------------------------------
+$logDir = Join-Path $root "output"
+if (-not (Test-Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir | Out-Null
 }
 
-# Validate root exists
-if (-not (Test-Path $root)) {
-    throw "Root folder does not exist: $root"
-}
+$timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
+$logPath = Join-Path $logDir "preview_$timestamp.csv"
 
-# ExifTool must be available in PATH
-$exiftool = "exiftool"
+"file,relative_path,status,message" |
+    Out-File -FilePath $logPath -Encoding UTF8
 
-# Define preview output folder inside the chosen root
-$previewRoot = Join-Path $root "_previews"
-
-# Create preview folder if needed
-if (-not (Test-Path $previewRoot)) {
-    Write-Host "Creating preview folder: $previewRoot"
-    New-Item -ItemType Directory -Path $previewRoot | Out-Null
-}
-
-# Collect image files
-$files = Get-ChildItem -Path $root -Recurse -File -Include *.jpg, *.jpeg, *.cr3, *.cr2
-
-Write-Host "Found $($files.Count) files to process"
+# -----------------------------------------
+# Process CR3 files
+# -----------------------------------------
+$files = Get-ChildItem -Path $root -Recurse -Include *.cr3
 
 foreach ($file in $files) {
 
-    # Compute relative path
-    $relative = $file.FullName.Substring($root.Length).TrimStart('\')
+    # Relative path for logging
+    $relative = $file.FullName.Replace((Resolve-Path $root).Path, "").TrimStart("\","/")
 
-    # Compute preview output path
-    $previewPath = Join-Path $previewRoot ($relative + ".jpg")
-    $previewDir  = Split-Path $previewPath -Parent
+    # Preview folder beside source
+    $sourceDir = Split-Path $file.FullName -Parent
+    $previewDir = Join-Path $sourceDir "_preview"
 
-    # Ensure preview directory exists
     if (-not (Test-Path $previewDir)) {
         New-Item -ItemType Directory -Path $previewDir | Out-Null
     }
 
-    # Skip if preview already exists
-    if (Test-Path $previewPath) {
-        continue
+    # Clean filename: strip .cr3 → .jpg
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+    $previewPath = Join-Path $previewDir ($baseName + ".jpg")
+
+    $status = "skipped"
+    $msg = ""
+
+    # -----------------------------------------
+    # Generate preview (ImageMagick)
+    # -----------------------------------------
+try {
+    if (-not $test) {
+        magick $file.FullName -resize 2048x $previewPath
+        $status = "created"
     }
-
-    Write-Host "Generating preview for: $relative"
-
-    # Extract preview bytes from ExifTool
-    $previewBytes = & $exiftool -b -PreviewImage "$($file.FullName)"
-
-    # If ExifTool produced nothing, skip
-    if (-not $previewBytes -or $previewBytes.Length -eq 0) {
-        Write-Host "No embedded preview found — skipping"
-        continue
+    else {
+        $status = "skipped (test mode)"
     }
+}
+catch {
+    $status = "failed"
+    $msg = $_.Exception.Message
+}
 
-    # Write preview file safely
-    Set-Content -Encoding Byte -Path "$previewPath" -Value $previewBytes
+    # -----------------------------------------
+    # Log result
+    # -----------------------------------------
+    $line = "$($file.Name),$relative,$status,$msg"
+    Add-Content -Path $logPath -Value $line
 }
 
 Write-Host "Preview generation complete."
-Write-Host "-----------------------------------------"

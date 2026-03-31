@@ -1,0 +1,10 @@
+numpy
+pillow
+opencv-python
+ultralytics
+onnxruntime-gpu
+pyexiftool
+tqdm
+rich
+torch
+torchvision
