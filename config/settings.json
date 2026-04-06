@@ -2,10 +2,15 @@
     "preview_extension": ".jpg",
     "raw_extension": ".CR3",
     "xmp_extension": ".XMP",
+
+    "photo_root": "",              // filled in by PowerShell
+    "test_mode": false,            // updated each run
+
     "model_path": "models/yolov8.onnx",
     "classification_output": "output/classification.csv",
     "confidence": 0.4,
     "verbose": false,
-    "exiftoolPath": "C:\\exiftool\\exiftool.exe"
 
+    "exiftoolPath": "C:\\exiftool\\exiftool.exe"
 }
+
