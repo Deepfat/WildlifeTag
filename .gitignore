@@ -20,3 +20,5 @@ models/**/*.onnx
 test/
 test/*.cr3
 test/**/*.cr3
+*.xmp
+*.XMP

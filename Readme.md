@@ -13,6 +13,7 @@ All metadata updates are **upsert‑safe** and never overwrite existing XMP fiel
 The pipeline is split into two layers:
 
 ### **1. PowerShell (Controller Layer)**  
+
 Handles all filesystem‑level orchestration:
 
 - walks the directory tree  
@@ -25,6 +26,7 @@ Handles all filesystem‑level orchestration:
 This keeps the Python side focused purely on ML and metadata.
 
 ### **2. Python Package (ML + Metadata Engine)**  
+
 Located in `wildlife_classifier/`, containing:
 
 - `yolo_detector.py` — coarse detection + crop extraction  
@@ -43,10 +45,12 @@ This separation mirrors real production ML systems.
 ## 🧭 End‑to‑End Workflow
 
 ### **1. Preview Generation (PowerShell)**  
+
 RAW files (CR3) are converted into deterministic JPEG previews using ImageMagick.  
 Most ML models cannot read RAW formats directly, so previews are required.
 
 ### **2. Detection (YOLOv9)**  
+
 The Python engine loads YOLO once and performs:
 
 - bounding‑box detection  
@@ -61,6 +65,7 @@ Inference is fully deterministic:
 - no augmentation  
 
 ### **3. Species Classification (Offline iNaturalist)**  
+
 If a crop is available, the offline iNat model predicts:
 
 - species  
@@ -75,6 +80,7 @@ If a crop is available, the offline iNat model predicts:
 This step is optional and modular.
 
 ### **4. XMP Metadata Upsert**  
+
 Tags are written into XMP sidecar files using ExifTool.
 
 The writer is **non‑destructive**:
@@ -85,10 +91,10 @@ The writer is **non‑destructive**:
 - confidence and model identifiers are included  
 
 ### **5. Logging & Auditability**  
+
 Each image produces a JSONL log under:
 
-```
-logs/YYYY-MM-DD/IMG_1234.jsonl
+```logs/YYYY-MM-DD/IMG_1234.jsonl
 ```
 
 Logs include:

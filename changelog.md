@@ -3,7 +3,7 @@
 
 ## [1.0.0] - 2026-04-06
 
-### Added
+### Added Scripts
 
 - Complete `wildlife_classifier` Python package:
 
@@ -16,9 +16,9 @@
   - `deterministic.py` – reproducible inference setup
   - `model_downloader.py` – downloads iNat model + taxonomy
 
-### Added
-- Modular architecture mirroring production ML systems
+### Added Functionality
 
+- Modular architecture mirroring production ML systems
 - Deterministic inference across all components
 - Upsert-safe XMP metadata writing
 - Manifest-driven batch processing
@@ -27,4 +27,3 @@
 ### Notes
 
 This release establishes the v1 architecture baseline.
-
