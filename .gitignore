@@ -13,10 +13,12 @@ __pycache__/
 .vscode/
 
 # Your ONNX models
-models/*.onnx
-models/**/*.onnx
+models/
 
 # Your test folder with sample CR3 files
 test_images/
 logs/
+# Integration test workspace (always regenerated)
+_test_workspace/
 
+*.egg-info/

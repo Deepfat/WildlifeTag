@@ -27,3 +27,15 @@
 ### Notes
 
 This release establishes the v1 architecture baseline.
+
+### Added
+
+- Unit tests for YoloDetector, SpeciesClassifier, and XMPWriter.
+
+### Changed
+
+- Updated .gitignore to exclude tests/test_images/ and logs/.
+
+### Fixed
+
+- Removed accidentally committed test artefacts (JPG/XMP/log files).

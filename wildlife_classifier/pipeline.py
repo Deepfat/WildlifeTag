@@ -1,225 +1,136 @@
-# wildlife_classifier/pipeline.py
+import argparse
+import pathlib
+import logging
+from typing import List, Dict, Optional
 
-from pathlib import Path
-from typing import Optional, Dict, Any, List
+from safetensors.torch import load_file
+from ultralytics import YOLO
 
-from .logger import Logger
-from .yolo_detector import YOLODetector
-from .species_classifier import SpeciesClassifier
-from .xmp_writer import XMPWriter
+from wildlife_classifier.yolo_detector import YoloDetector
+from wildlife_classifier.species_classifier import SpeciesClassifier
+from wildlife_classifier.xmp_writer import XMPWriter
 
 
-# ---------------------------------------------------------
-# Single-image pipeline
-# ---------------------------------------------------------
+log = logging.getLogger("pipeline")
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-def run_single_image(
-    jpeg_path: Path,
-    raw_path: Path,
-    yolo_model: str,
-    inat_model: Path,
-    taxonomy_path: Path,
-    yolo_conf: float,
-    inat_conf: float,
-    device: Optional[str],
-    verbose: bool,
-) -> Dict[str, Any]:
-    """
-    Full pipeline for a single RAW+JPEG pair.
-    Returns a JSON-serialisable dict.
-    """
 
-    image_id = raw_path.stem
-    logger = Logger(image_id=image_id, verbose=verbose)
+MODELS_DIR = pathlib.Path("models")
+YOLO_MODEL = MODELS_DIR / "yolov9c.pt"
+CLASSIFIER_MODEL = MODELS_DIR / "model.safetensors"
 
-    logger.info("Starting single-image pipeline",
-                jpeg=str(jpeg_path), raw=str(raw_path))
+TAXONOMY_PATH = MODELS_DIR / "taxonomy.json"
 
-    # -----------------------------------------------------
-    # Initialise components
-    # -----------------------------------------------------
+
+def ensure_yolo_model(path: pathlib.Path) -> pathlib.Path:
+    """Ensure YOLO model exists; download if missing."""
+    if path.exists():
+        return path
+
+    log.warning(f"YOLO model missing, downloading to {path}")
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+    model = YOLO("yolov9c.pt")
+    model.save(str(path))
+
+    if not path.exists():
+        raise RuntimeError(f"Failed to download YOLO model to {path}")
+
+    log.info("YOLO model downloaded")
+    return path
+
+
+def ensure_classifier_model(path: pathlib.Path) -> pathlib.Path:
+    """Validate safetensors file; if corrupt, delete and re-download."""
     try:
-        detector = YOLODetector(
-            model_path=yolo_model,
-            conf=yolo_conf,
-            device=device,
-        )
-        classifier = SpeciesClassifier(
-            model_path=inat_model,
-            taxonomy_path=taxonomy_path,
-            device=device,
-            conf_threshold=inat_conf,
-        )
-        xmp = XMPWriter()
-    except Exception as e:
-        logger.error("Failed to initialise pipeline components", error=str(e))
-        return {"status": "error", "error": str(e)}
+        load_file(str(path))
+        return path
+    except Exception:
+        log.error(f"Classifier model corrupt or unreadable: {path}")
+        path.unlink(missing_ok=True)
 
-    # -----------------------------------------------------
-    # YOLO detection
-    # -----------------------------------------------------
-    coarse_tags, best_det = detector.detect(jpeg_path, logger)
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        download_classifier_model(path)
 
-    # -----------------------------------------------------
-    # Crop + species classification
-    # -----------------------------------------------------
-    taxonomy: Optional[Dict[str, Any]] = None
-
-    if best_det is not None:
-        crop_path = detector.crop_best_detection(jpeg_path, best_det, logger)
-        if crop_path is not None:
-            taxonomy = classifier.classify(crop_path, logger)
-
-    # -----------------------------------------------------
-    # XMP metadata upsert
-    # -----------------------------------------------------
-    xmp.upsert_xmp(
-        raw_path=raw_path,
-        coarse_tags=coarse_tags,
-        taxonomy=taxonomy,
-        logger=logger,
-    )
-
-    # -----------------------------------------------------
-    # Return result
-    # -----------------------------------------------------
-    return {
-        "status": "ok",
-        "mode": "single",
-        "raw": str(raw_path),
-        "jpeg": str(jpeg_path),
-        "coarse_tags": coarse_tags,
-        "taxonomy": taxonomy,
-    }
+        load_file(str(path))
+        log.info("Classifier model restored")
+        return path
 
 
-# ---------------------------------------------------------
-# Batch pipeline
-# ---------------------------------------------------------
-
-def load_manifest(path: Path) -> List[Dict[str, str]]:
-    """
-    Manifest must be a list of objects:
-    [
-        {"raw": "...", "jpeg": "..."},
-        ...
-    ]
-    """
-    import json
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if not isinstance(data, list):
-        raise ValueError("Manifest must be a JSON list of {raw, jpeg} objects")
-
-    return data
+def download_classifier_model(path: pathlib.Path):
+    """Replace with your real download logic."""
+    raise RuntimeError("download_classifier_model() not implemented")
 
 
-def run_batch(
-    manifest_path: Path,
-    yolo_model: str,
-    inat_model: Path,
-    taxonomy_path: Path,
-    yolo_conf: float,
-    inat_conf: float,
-    device: Optional[str],
-    verbose: bool,
-) -> Dict[str, Any]:
-    """
-    Batch pipeline: loads manifest, processes each entry,
-    returns a list of results.
-    """
+def find_raw_jpg_pairs(image_dir: pathlib.Path) -> List[Dict[str, pathlib.Path]]:
+    """Locate CR3 files and their matching JPG previews."""
+    pairs: List[Dict[str, pathlib.Path]] = []
+
+    for raw in image_dir.rglob("*.CR3"):
+        preview = raw.parent / "_preview" / f"{raw.stem}.jpg"
+        if preview.exists():
+            pairs.append({"raw": raw, "jpg": preview})
+
+    return pairs
+
+
+def run_pipeline(image_dir: pathlib.Path, model_dir: pathlib.Path):
+    """Run detection, classification, and XMP writing across all image pairs."""
+    log.info("Scanning for RAW/JPG pairs...")
+    manifest = find_raw_jpg_pairs(image_dir)
+
+    if not manifest:
+        log.info("No RAW/JPG pairs found.")
+        return
+
+    log.info(f"Found {len(manifest)} pairs.")
+
+    # --- Ensure models exist ---
+    yolo_path = ensure_yolo_model(YOLO_MODEL)
+    classifier_path = ensure_classifier_model(CLASSIFIER_MODEL)
+
+    # --- Instantiate components ---
+    detector = YoloDetector(str(yolo_path))
 
     try:
-        entries = load_manifest(manifest_path)
+        classifier = SpeciesClassifier(classifier_path, TAXONOMY_PATH)
     except Exception as e:
-        return {"status": "error", "error": f"Failed to load manifest: {e}"}
+        log.warning(f"Species classifier unavailable, skipping classification: {e}")
+        classifier = None
 
-    # -----------------------------------------------------
-    # Initialise components ONCE for the whole batch
-    # -----------------------------------------------------
-    try:
-        detector = YOLODetector(
-            model_path=yolo_model,
-            conf=yolo_conf,
-            device=device,
+    xmp_writer = XMPWriter()
+
+    # --- Process each image pair ---
+    for entry in manifest:
+        raw = entry["raw"]
+        jpg = entry["jpg"]
+
+        log.info(f"Processing {raw.name}...")
+
+        tags, best = detector.detect(jpg, log)
+
+        species: Optional[str] = None
+        if classifier and best:
+            species = classifier.classify(jpg, best)
+
+        xmp_writer.upsert_xmp(
+            raw,
+            coarse_tags=tags,
+            taxonomy=species,
+            logger=log,
         )
-        classifier = SpeciesClassifier(
-            model_path=inat_model,
-            taxonomy_path=taxonomy_path,
-            device=device,
-            conf_threshold=inat_conf,
-        )
-        xmp = XMPWriter()
-    except Exception as e:
-        return {"status": "error", "error": f"Failed to initialise models: {e}"}
 
-    results: List[Dict[str, Any]] = []
+    log.info("Pipeline complete.")
 
-    # -----------------------------------------------------
-    # Process each entry
-    # -----------------------------------------------------
-    for entry in entries:
-        raw = Path(entry["raw"])
-        jpeg = Path(entry["jpeg"])
-        image_id = raw.stem
 
-        logger = Logger(image_id=image_id, verbose=verbose)
-        logger.info("Starting batch image", jpeg=str(jpeg), raw=str(raw))
+def main():
+    parser = argparse.ArgumentParser(description="Wildlife tagging pipeline")
+    parser.add_argument("image_dir", type=pathlib.Path)
+    parser.add_argument("model_dir", type=pathlib.Path)
 
-        if not jpeg.is_file():
-            logger.error("JPEG not found", jpeg=str(jpeg))
-            results.append({
-                "status": "error",
-                "raw": str(raw),
-                "jpeg": str(jpeg),
-                "error": f"JPEG not found: {jpeg}",
-            })
-            continue
+    args = parser.parse_args()
+    run_pipeline(args.image_dir, args.model_dir)
 
-        if not raw.is_file():
-            logger.error("RAW not found", raw=str(raw))
-            results.append({
-                "status": "error",
-                "raw": str(raw),
-                "jpeg": str(jpeg),
-                "error": f"RAW not found: {raw}",
-            })
-            continue
 
-        try:
-            # YOLO
-            coarse_tags, best_det = detector.detect(jpeg, logger)
-
-            # Crop + species
-            taxonomy: Optional[Dict[str, Any]] = None
-            if best_det is not None:
-                crop_path = detector.crop_best_detection(jpeg, best_det, logger)
-                if crop_path is not None:
-                    taxonomy = classifier.classify(crop_path, logger)
-
-            # XMP
-            xmp.upsert_xmp(raw, coarse_tags, taxonomy, logger)
-
-            results.append({
-                "status": "ok",
-                "raw": str(raw),
-                "jpeg": str(jpeg),
-                "coarse_tags": coarse_tags,
-                "taxonomy": taxonomy,
-            })
-
-        except Exception as e:
-            logger.error("Unhandled error during batch processing", error=str(e))
-            results.append({
-                "status": "error",
-                "raw": str(raw),
-                "jpeg": str(jpeg),
-                "error": str(e),
-            })
-
-    return {
-        "status": "ok",
-        "mode": "batch",
-        "results": results,
-    }
+if __name__ == "__main__":
+    main()

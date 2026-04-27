@@ -9,7 +9,7 @@ import torch
 from .logger import Logger
 
 
-class YOLODetector:
+class YoloDetector:
     """
     YOLO-based coarse detector.
 

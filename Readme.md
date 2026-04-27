@@ -162,6 +162,15 @@ This keeps the Python engine clean and focused.
 
 ---
 
+## 🧪 Tests
+
+Unit tests live under `tests/`.
+
+Binary artefacts used during testing (JPG, XMP, RAW, CR3, logs) are stored in `tests/test_images/` and are ignored by Git.  
+Only Python test files (`test_*.py`) are tracked.
+
+---
+
 ## ✔ Summary
 
 This project provides:
