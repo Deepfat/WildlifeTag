@@ -12,17 +12,26 @@ class SpeciesClassifier:
     def __init__(self, model_dir: Path):
         model_dir = Path(model_dir)
 
-        with (model_dir / "config.json").open("r") as f:
-            self.config = json.load(f)
+        taxonomy_path = model_dir / "taxonomy_flat.json"
+        if not taxonomy_path.exists():
+            raise FileNotFoundError(f"Missing taxonomy_flat.json in {model_dir}")
 
-        with (model_dir / "categories.json").open("r") as f:
+        with taxonomy_path.open("r", encoding="utf-8") as f:
             self.taxonomy = json.load(f)
 
-        state_dict = load_file(model_dir / "model.safetensors")
+        weights_path = model_dir / "model.safetensors"
+        if not weights_path.exists():
+            raise FileNotFoundError(f"Missing model.safetensors in {model_dir}")
 
-        model_name = self.config.get("architecture", "eva02_large_patch14_clip_336")
+        state_dict = load_file(weights_path)
+
+        model_name = "eva02_large_patch14_clip_336"
+
         self.model = torch.hub.load(
-            "timm", model_name, pretrained=False, num_classes=len(self.taxonomy)
+            "timm",
+            model_name,
+            pretrained=False,
+            num_classes=len(self.taxonomy),
         )
         self.model.load_state_dict(state_dict)
         self.model.eval()
@@ -31,10 +40,13 @@ class SpeciesClassifier:
             transforms.Resize((336, 336)),
             transforms.ToTensor(),
             transforms.Normalize(
-                mean=self.config.get("mean", [0.5, 0.5, 0.5]),
-                std=self.config.get("std", [0.5, 0.5, 0.5])
-            )
+                mean=[0.5, 0.5, 0.5],
+                std=[0.5, 0.5, 0.5],
+            ),
         ])
+
+        # taxonomy_flat.json is keyed by species name → build ordered list
+        self.species_list = sorted(self.taxonomy.keys())
 
     def predict(self, image_path: Path):
         img = Image.open(image_path).convert("RGB")
@@ -46,10 +58,13 @@ class SpeciesClassifier:
             top_prob, top_idx = probs[0].max(0)
 
         idx = int(top_idx)
-        entry = self.taxonomy[idx]
+
+        # FIX: lookup species name by index, then lookup taxonomy entry
+        species_name = self.species_list[idx]
+        entry = self.taxonomy[species_name]
 
         return {
-            "species": entry["name"],
+            "species": species_name,
             "genus": entry.get("genus"),
             "family": entry.get("family"),
             "order": entry.get("order"),

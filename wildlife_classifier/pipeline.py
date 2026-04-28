@@ -9,6 +9,7 @@ from ultralytics import YOLO
 from wildlife_classifier.yolo_detector import YoloDetector
 from wildlife_classifier.species_classifier import SpeciesClassifier
 from wildlife_classifier.xmp_writer import XMPWriter
+from wildlife_classifier.taxonomy_flattener import flatten_taxonomy
 
 
 log = logging.getLogger("pipeline")
@@ -16,21 +17,21 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 MODELS_DIR = pathlib.Path("models")
-YOLO_MODEL = MODELS_DIR / "yolov9c.pt"
+YOLO_MODEL = MODELS_DIR / "yolov9-c.pt"
 CLASSIFIER_MODEL = MODELS_DIR / "model.safetensors"
 
-TAXONOMY_PATH = MODELS_DIR / "taxonomy.json"
+TAXONOMY_NESTED = MODELS_DIR / "taxonomy.json"
+TAXONOMY_FLAT = MODELS_DIR / "taxonomy_flat.json"
 
 
 def ensure_yolo_model(path: pathlib.Path) -> pathlib.Path:
-    """Ensure YOLO model exists; download if missing."""
     if path.exists():
         return path
 
     log.warning(f"YOLO model missing, downloading to {path}")
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    model = YOLO("yolov9c.pt")
+    model = YOLO("yolov9-c.pt")
     model.save(str(path))
 
     if not path.exists():
@@ -41,7 +42,6 @@ def ensure_yolo_model(path: pathlib.Path) -> pathlib.Path:
 
 
 def ensure_classifier_model(path: pathlib.Path) -> pathlib.Path:
-    """Validate safetensors file; if corrupt, delete and re-download."""
     try:
         load_file(str(path))
         return path
@@ -58,12 +58,27 @@ def ensure_classifier_model(path: pathlib.Path) -> pathlib.Path:
 
 
 def download_classifier_model(path: pathlib.Path):
-    """Replace with your real download logic."""
     raise RuntimeError("download_classifier_model() not implemented")
 
 
+def ensure_taxonomy_flat():
+    if not TAXONOMY_NESTED.exists():
+        raise RuntimeError(f"taxonomy.json missing: {TAXONOMY_NESTED}")
+
+    if TAXONOMY_FLAT.exists():
+        return TAXONOMY_FLAT
+
+    log.info("taxonomy_flat.json missing, generating...")
+    flatten_taxonomy(TAXONOMY_NESTED, TAXONOMY_FLAT)
+
+    if not TAXONOMY_FLAT.exists():
+        raise RuntimeError("Failed to generate taxonomy_flat.json")
+
+    log.info("taxonomy_flat.json created")
+    return TAXONOMY_FLAT
+
+
 def find_raw_jpg_pairs(image_dir: pathlib.Path) -> List[Dict[str, pathlib.Path]]:
-    """Locate CR3 files and their matching JPG previews."""
     pairs: List[Dict[str, pathlib.Path]] = []
 
     for raw in image_dir.rglob("*.CR3"):
@@ -75,7 +90,6 @@ def find_raw_jpg_pairs(image_dir: pathlib.Path) -> List[Dict[str, pathlib.Path]]
 
 
 def run_pipeline(image_dir: pathlib.Path, model_dir: pathlib.Path):
-    """Run detection, classification, and XMP writing across all image pairs."""
     log.info("Scanning for RAW/JPG pairs...")
     manifest = find_raw_jpg_pairs(image_dir)
 
@@ -89,11 +103,14 @@ def run_pipeline(image_dir: pathlib.Path, model_dir: pathlib.Path):
     yolo_path = ensure_yolo_model(YOLO_MODEL)
     classifier_path = ensure_classifier_model(CLASSIFIER_MODEL)
 
+    # --- Ensure taxonomy_flat.json exists ---
+    ensure_taxonomy_flat()
+
     # --- Instantiate components ---
     detector = YoloDetector(str(yolo_path))
 
     try:
-        classifier = SpeciesClassifier(classifier_path, TAXONOMY_PATH)
+        classifier = SpeciesClassifier(classifier_path, TAXONOMY_FLAT)
     except Exception as e:
         log.warning(f"Species classifier unavailable, skipping classification: {e}")
         classifier = None
@@ -109,14 +126,14 @@ def run_pipeline(image_dir: pathlib.Path, model_dir: pathlib.Path):
 
         tags, best = detector.detect(jpg, log)
 
-        species: Optional[str] = None
+        taxonomy: Optional[Dict] = None
         if classifier and best:
-            species = classifier.classify(jpg, best)
+            taxonomy = classifier.predict(jpg)
 
         xmp_writer.upsert_xmp(
             raw,
             coarse_tags=tags,
-            taxonomy=species,
+            taxonomy=taxonomy,
             logger=log,
         )
 

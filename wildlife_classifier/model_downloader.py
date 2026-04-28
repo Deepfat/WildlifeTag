@@ -1,78 +1,79 @@
-# wildlife_classifier/model_downloader.py
-
+# model_downloader.py
 from pathlib import Path
 import json
+import logging
 from huggingface_hub import hf_hub_download
-from safetensors.torch import load_file
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+log = logging.getLogger("downloader")
 
 
-# HuggingFace repo for the iNat EVA02 model
-HF_REPO = "timm/eva02_large_patch14_clip_336.merged2b_ft_inat21"
+class ModelDownloader:
+    """
+    Downloads:
+      - YOLOv9‑C
+      - iNat21 classifier (model.safetensors, config.json, categories.json)
+      - taxonomy.json
+    """
 
-HF_FILES = {
-    "model.safetensors": "model.safetensors",
-    "config.json": "config.json",
-    "categories.json": "categories_inat2021.json",
-}
+    YOLO_REPO = "merve/yolov9"
+    YOLO_FILE = "yolov9-c.pt"
 
+    INAT21_REPO = "timm/eva02_large_patch14_clip_336.merged2b_ft_inat21"
+    INAT21_FILES = [
+        "model.safetensors",
+        "config.json",
+        "categories.json",
+        "taxonomy.json",
+    ]
 
-def download_yolo(dest: Path):
-    """Download YOLOv9c from HuggingFace instead of Ultralytics."""
-    if dest.exists():
-        print("✓ yolov9c.pt already exists")
-        return
+    def __init__(self, model_dir: Path):
+        self.model_dir = Path(model_dir)
+        self.model_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Downloading YOLOv9c from HuggingFace…")
-
-    # This is the correct, working, deterministic source
-    path = hf_hub_download(
-        repo_id="merve/yolov9",
-        filename="yolov9-c.pt",
-        local_dir=str(dest.parent),
-        local_dir_use_symlinks=False,
-        resume_download=True,
-    )
-
-    # hf_hub_download returns the actual file path inside the cache/local_dir
-    downloaded = Path(path)
-
-    if not downloaded.exists():
-        raise RuntimeError(f"YOLOv9c was not downloaded. Expected at {downloaded}")
-
-    print(f"Copying YOLOv9c → {dest}")
-    dest.write_bytes(downloaded.read_bytes())
-    print("✓ yolov9c.pt downloaded")
-
-
-def download_inat(model_dir: Path):
-    """Download the iNat classifier using huggingface_hub."""
-    for local_name, hf_name in HF_FILES.items():
-        dest = model_dir / local_name
+    # ------------------------------
+    # Internal helper
+    # ------------------------------
+    def _download(self, repo: str, filename: str) -> Path:
+        dest = self.model_dir / filename
         if dest.exists():
-            print(f"✓ {local_name} already exists")
-            continue
+            log.info(f"{filename} already exists")
+            return dest
 
-        print(f"Downloading {hf_name} → {dest}")
-        downloaded = hf_hub_download(
-            repo_id=HF_REPO,
-            filename=hf_name,
-            local_dir=model_dir,
-            resume_download=True,
+        log.info(f"Downloading {filename} from {repo}")
+        p = hf_hub_download(
+            repo_id=repo,
+            filename=filename,
+            local_dir=str(self.model_dir),
         )
-        Path(downloaded).rename(dest)
+        Path(p).rename(dest)
+        log.info(f"{filename} downloaded")
+        return dest
 
-    print("Validating model.safetensors…")
-    load_file(str(model_dir / "model.safetensors"))
-    print("✓ model.safetensors validated")
+    # ------------------------------
+    # Public API
+    # ------------------------------
+    def download_yolo(self):
+        return self._download(self.YOLO_REPO, self.YOLO_FILE)
+
+    def download_inat21(self):
+        for fname in self.INAT21_FILES:
+            self._download(self.INAT21_REPO, fname)
+
+    def download_all(self):
+        self.download_yolo()
+        self.download_inat21()
+        log.info("All model files ready.")
 
 
 def download_model(settings_path: Path):
-    """Entry point used by pytest."""
     settings = json.loads(settings_path.read_text())
     model_dir = Path(settings["model_path"])
-    model_dir.mkdir(parents=True, exist_ok=True)
 
-    download_yolo(model_dir / "yolov9c.pt")
-    download_inat(model_dir)
+    downloader = ModelDownloader(model_dir)
+    downloader.download_all()
 
-    print("✓ All models downloaded and validated.")
+
+if __name__ == "__main__":
+    import sys
+    download_model(Path(sys.argv[1]))

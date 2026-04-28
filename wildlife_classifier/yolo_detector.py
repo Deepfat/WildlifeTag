@@ -23,7 +23,7 @@ class YoloDetector:
 
     def __init__(
         self,
-        model_path: str = "yolov9c.pt",
+        model_path: str = "yolov9-c.pt",
         conf: float = 0.25,
         device: Optional[str] = None,
     ) -> None:
