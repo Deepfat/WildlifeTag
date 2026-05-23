@@ -7,6 +7,24 @@ Write-Host " Wildlife Tagging Pipeline Installer"
 Write-Host "========================================="
 
 # -----------------------------
+# Load settings.json
+# -----------------------------
+$settingsPath = Join-Path $PSScriptRoot "settings.json"
+
+if (-not (Test-Path $settingsPath)) {
+    Write-Error "settings.json not found at $settingsPath"
+    exit 1
+}
+
+$settings = Get-Content $settingsPath | ConvertFrom-Json
+$exiftoolPath = $settings.exiftool_path
+
+if (-not $exiftoolPath) {
+    Write-Error "exiftool_path missing in settings.json"
+    exit 1
+}
+
+# -----------------------------
 # 1. Check Python 3.11
 # -----------------------------
 Write-Host "`nChecking Python 3.11..."
@@ -32,7 +50,7 @@ Write-Host "Python 3.11 OK"
 # -----------------------------
 Write-Host "`nChecking pip..."
 
-$pip = python -m pip --version 2>$null
+python -m pip --version 2>$null
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "pip not found. Ensure Python was installed with 'Add to PATH' enabled."
@@ -77,18 +95,46 @@ if (-not $magick) {
 Write-Host "ImageMagick OK"
 
 # -----------------------------
-# 5. Check ExifTool
+# 5. Check ExifTool using settings.json
 # -----------------------------
 Write-Host "`nChecking ExifTool..."
 
-$exif = Get-Command exiftool -ErrorAction SilentlyContinue
+if (-not (Test-Path $exiftoolPath)) {
+    Write-Host "ExifTool not found at $exiftoolPath"
+    Write-Host "Downloading ExifTool..."
 
-if (-not $exif) {
-    Write-Error "ExifTool not found. Install from https://exiftool.org/"
-    exit 1
+    $zipUrl = "https://exiftool.org/exiftool-12.76.zip"
+    $zipFile = Join-Path $env:TEMP "exiftool.zip"
+    $extractDir = Split-Path $exiftoolPath -Parent
+
+    Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to download ExifTool."
+        exit 1
+    }
+
+    Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
+
+    $downloaded = Get-ChildItem -Path $extractDir -Filter "exiftool*.exe" | Select-Object -First 1
+
+    if (-not $downloaded) {
+        Write-Error "Downloaded ExifTool archive did not contain an executable."
+        exit 1
+    }
+
+    Rename-Item -Path $downloaded.FullName -NewName (Split-Path $exiftoolPath -Leaf) -Force
+
+    if (-not (Test-Path $exiftoolPath)) {
+        Write-Error "Failed to install ExifTool to $exiftoolPath"
+        exit 1
+    }
+
+    Write-Host "ExifTool installed to $exiftoolPath"
 }
-
-Write-Host "ExifTool OK"
+else {
+    Write-Host "ExifTool OK at $exiftoolPath"
+}
 
 # -----------------------------
 # 6. Validate GPU availability
@@ -100,35 +146,34 @@ python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 Write-Host "GPU check complete"
 
 # -----------------------------
-# 7. Download iNat 2021 model + metadata
+# 7. Download iNat 2021 model + taxonomy (handled by model_downloader)
 # -----------------------------
-Write-Host "`nDownloading iNat 2021 model + metadata..."
+Write-Host "`nDownloading models..."
+
+$ProjectRoot = Split-Path $PSScriptRoot -Parent
+$SettingsPath = Join-Path $ProjectRoot "config\settings.json"
+
+python -m wildlife_classifier.model_downloader $SettingsPath
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to download models."
+    exit 1
+}
+
+Write-Host "Models downloaded successfully"
+Write-Host "`nDownloading iNat 2021 model + taxonomy..."
 
 python -m wildlife_classifier.cli --download-inat2021
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to download iNat 2021 model or metadata."
+    Write-Error "Failed to download iNat 2021 model or taxonomy."
     exit 1
 }
 
-Write-Host "iNat 2021 model + metadata downloaded"
+Write-Host "iNat 2021 model + taxonomy downloaded"
 
 # -----------------------------
-# 8. Build iNat 2021 taxonomy
-# -----------------------------
-Write-Host "`nBuilding iNat 2021 taxonomy..."
-
-python -m wildlife_classifier.cli --build-inat2021-taxonomy
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to build iNat 2021 taxonomy."
-    exit 1
-}
-
-Write-Host "iNat 2021 taxonomy built"
-
-# -----------------------------
-# 9. Final message
+# 8. Final message
 # -----------------------------
 Write-Host "`n========================================="
 Write-Host " Installation complete."

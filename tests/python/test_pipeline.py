@@ -12,13 +12,14 @@ from wildlife_classifier.xmp_writer import XMPWriter
 
 class DummyDetector:
     def __init__(self, *_): pass
-    def detect(self, jpg):
-        return [{"label": "bird", "bbox": [0, 0, 10, 10], "conf": 0.9}]
+    def detect(self, jpg, log=None):
+        # Return (tags, best_detection) tuple like real YoloDetector
+        return (["bird"], {"label": "bird", "bbox": [0, 0, 10, 10], "conf": 0.9})
 
 
 class DummyClassifier:
     def __init__(self, *_): pass
-    def classify(self, jpg, detections):
+    def predict(self, jpg):
         return {"species": "TestSpecies", "confidence": 0.9}
 
 

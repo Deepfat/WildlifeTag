@@ -1,9 +1,11 @@
 import pytest
 import subprocess
+import sys
 from pathlib import Path
 import shutil
 
 @pytest.mark.order(3)
+@pytest.mark.integration  # Mark as integration test (requires models and image processing)
 def test_pipeline_with_models(tmp_path):
     project_root = Path(__file__).resolve().parents[2]
     models_dir = project_root / "models"
@@ -13,10 +15,10 @@ def test_pipeline_with_models(tmp_path):
     work = tmp_path / "workspace"
     shutil.copytree(sample_images, work)
 
-    # Run pipeline
+    # Run pipeline using current Python executable (venv)
     subprocess.run(
         [
-            "python",
+            sys.executable,
             "-m",
             "wildlife_classifier.pipeline",
             str(work),

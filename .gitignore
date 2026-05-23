@@ -22,3 +22,8 @@ logs/
 _test_workspace/
 
 *.egg-info/
+
+#  models
+*.pt
+*.onnx
+models/

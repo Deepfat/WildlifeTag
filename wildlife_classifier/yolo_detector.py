@@ -42,7 +42,7 @@ class YoloDetector:
         - sorted list of unique coarse tags
         - best detection (for cropping) as dict or None
         """
-        logger.info("Running YOLO detection", jpeg=str(jpeg_path))
+        logger.info(f"Running YOLO detection on {jpeg_path}")
 
         results = self.model(
             str(jpeg_path),
@@ -73,7 +73,7 @@ class YoloDetector:
                     }
 
         tags = sorted(set(tags))
-        logger.info("YOLO detection complete", tags=tags, best_detection=best_det)
+        logger.info(f"YOLO detection complete: {len(tags)} tags, best_detection={best_det}")
         return tags, best_det
 
     def crop_best_detection(
@@ -116,9 +116,9 @@ class YoloDetector:
                 crop_path = out_dir / crop_name
                 crop.save(crop_path, format="JPEG", quality=95)
 
-                logger.info("Saved crop", crop=str(crop_path))
+                logger.info(f"Saved crop to {crop_path}")
                 return crop_path
 
         except Exception as e:
-            logger.error("Failed to crop image", error=str(e))
+            logger.error(f"Failed to crop image: {e}")
             return None

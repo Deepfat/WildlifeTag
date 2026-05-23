@@ -1,6 +1,7 @@
 import argparse
 import pathlib
 import logging
+import json
 from typing import List, Dict, Optional
 
 from safetensors.torch import load_file
@@ -16,28 +17,42 @@ log = logging.getLogger("pipeline")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
-MODELS_DIR = pathlib.Path("models")
-YOLO_MODEL = MODELS_DIR / "yolov9-c.pt"
-CLASSIFIER_MODEL = MODELS_DIR / "model.safetensors"
-
-TAXONOMY_NESTED = MODELS_DIR / "taxonomy.json"
-TAXONOMY_FLAT = MODELS_DIR / "taxonomy_flat.json"
+# Will be set by run_pipeline()
+MODELS_DIR = None
+YOLO_MODEL = None
+CLASSIFIER_MODEL = None
+TAXONOMY_NESTED = None
+TAXONOMY_FLAT = None
 
 
 def ensure_yolo_model(path: pathlib.Path) -> pathlib.Path:
     if path.exists():
-        return path
+        try:
+            # Try loading to verify it's not corrupted
+            YOLO(str(path))
+            return path
+        except Exception as e:
+            log.warning(f"YOLO model corrupted: {e}, re-downloading...")
+            path.unlink(missing_ok=True)
 
     log.warning(f"YOLO model missing, downloading to {path}")
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-    model = YOLO("yolov9-c.pt")
-    model.save(str(path))
+    try:
+        # Use ultralytics native download - it will download and cache properly
+        # This downloads from ultralytics hub in the correct format for v8.1.28
+        model = YOLO("yolov9c.pt")
+        model.save(str(path))
+        log.info(f"YOLO model saved to {path}")
+        
+    except Exception as e:
+        log.error(f"Failed to download YOLO model: {e}")
+        raise RuntimeError(f"Failed to download YOLO model: {e}")
 
     if not path.exists():
         raise RuntimeError(f"Failed to download YOLO model to {path}")
 
-    log.info("YOLO model downloaded")
+    log.info("YOLO model downloaded and verified")
     return path
 
 
@@ -90,6 +105,15 @@ def find_raw_jpg_pairs(image_dir: pathlib.Path) -> List[Dict[str, pathlib.Path]]
 
 
 def run_pipeline(image_dir: pathlib.Path, model_dir: pathlib.Path):
+    global MODELS_DIR, YOLO_MODEL, CLASSIFIER_MODEL, TAXONOMY_NESTED, TAXONOMY_FLAT
+    
+    # Initialize model paths based on provided model_dir
+    MODELS_DIR = pathlib.Path(model_dir)
+    YOLO_MODEL = MODELS_DIR / "yolov9-c.pt"
+    CLASSIFIER_MODEL = MODELS_DIR / "model.safetensors"
+    TAXONOMY_NESTED = MODELS_DIR / "taxonomy.json"
+    TAXONOMY_FLAT = MODELS_DIR / "taxonomy_flat.json"
+    
     log.info("Scanning for RAW/JPG pairs...")
     manifest = find_raw_jpg_pairs(image_dir)
 
@@ -110,12 +134,12 @@ def run_pipeline(image_dir: pathlib.Path, model_dir: pathlib.Path):
     detector = YoloDetector(str(yolo_path))
 
     try:
-        classifier = SpeciesClassifier(classifier_path, TAXONOMY_FLAT)
+        classifier = SpeciesClassifier(classifier_path)
     except Exception as e:
         log.warning(f"Species classifier unavailable, skipping classification: {e}")
         classifier = None
 
-    xmp_writer = XMPWriter()
+    xmp_writer = XMPWriter(model_dir)
 
     # --- Process each image pair ---
     for entry in manifest:

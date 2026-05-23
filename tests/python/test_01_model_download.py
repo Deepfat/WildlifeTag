@@ -4,45 +4,15 @@ import subprocess
 import json
 import sys
 
-@pytest.mark.order(1)
-def test_model_download(tmp_path):
-    project_root = Path(__file__).resolve().parents[2]
-    models_dir = project_root / "models"
-
-    # Ensure models directory exists
-    models_dir.mkdir(parents=True, exist_ok=True)
-
-    settings = {
-        "model_type": "inat",
-        "model_path": str(models_dir)
-    }
-    settings_path = tmp_path / "settings.json"
-    settings_path.write_text(json.dumps(settings))
-
-    subprocess.run(
-        [sys.executable, "-m", "wildlife_classifier.model_downloader", str(settings_path)],
-        check=True
-    )
-
-    expected = [
-        "yolov9-c.pt",
-        "taxonomy.json",
-        "taxonomy_flat.json",
-    ]
-
-    for f in expected:
-        assert (models_dir / f).exists(), f"{f} missing"
-import pytest
-from pathlib import Path
-import subprocess
-import json
-import sys
-
 
 @pytest.mark.order(1)
+@pytest.mark.integration  # Mark as integration test (requires network access)
 def test_model_downloader(tmp_path):
-  
-
+    """
+    Integration test: Downloads actual models from HuggingFace Hub.
+    This test requires internet access and will download large files.
+    Run with: pytest -m integration
+    """
     # Temporary model directory for this test
     model_dir = tmp_path / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -61,7 +31,7 @@ def test_model_downloader(tmp_path):
         check=True
     )
 
-    # Expected files from the clean downloader
+    # Expected files from ModelDownloader.download_all()
     expected = [
         "yolov9-c.pt",
         "model.safetensors",
