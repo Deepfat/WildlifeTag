@@ -6,6 +6,8 @@ Designed for large RAW collections (e.g., 8,000+ CR3 files) where manual tagging
 The system uses **PowerShell for orchestration** and a clean **Python package for ML inference and metadata writing**.  
 All metadata updates are **upsert‑safe** and never overwrite existing XMP fields.
 
+There is also a seprate script to generate a [Taxonomy](taxonomy/Taxonomy_Builder.md) of species whihc can then be imported into categories into the ACDSee photoediting and digital asset management software.
+
 ---
 
 ## 📦 Architecture Overview

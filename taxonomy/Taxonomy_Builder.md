@@ -1,12 +1,12 @@
 # Ragged Taxonomy Builder (Local LLM with Ollama)
 
-A compact workflow for generating a ragged, human‑friendly taxonomy using local LLM inference. No API keys or cloud services required.
+A compact workflow for generating a ragged, human‑friendly taxonomy using local LLM inference. No API keys or cloud services required. The resulting taxonomy is then reshaped into a structure suitable for import into ACDSee category hierarchies.
 
 ## What Ollama Is
 
 Ollama is a local LLM runner that downloads models to your machine and serves them through a lightweight HTTP API. It works like a self‑hosted chat endpoint: once a model is pulled, you can query it repeatedly with no cost, no rate limits, and no internet connection. All inference happens locally, so taxonomy data never leaves your machine.
 
-Ollama exposes an API on `http://localhost:11434` and supports both interactive chat and programmatic requests. This project uses that API to ask the model for short, common English group names for each biological family.
+This project uses Ollama to infer short, common English group names for each biological family. These inferred groups are then used to build a clean, three‑level hierarchy that can be transformed into ACDSee’s category XML format.
 
 ## Overview
 
@@ -26,6 +26,8 @@ birds | owls | strigidae | Snowy Owl
 birds | songbirds | passeridae | House Sparrow  
 mammals | cats | felidae | Lion  
 mammals | primates | hominidae | Human  
+
+After building this ragged taxonomy, the data can be reshaped into the hierarchical XML structure required by ACDSee, allowing the entire taxonomy to appear as nested categories under a top‑level “Wildlife” node.
 
 ## Installing Ollama
 
