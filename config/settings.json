@@ -3,10 +3,11 @@
     "raw_extension":  ".CR3",
     "xmp_extension":  ".XMP",
     "test_mode":  false,
-    "model_path":  "models",
     "model_type":  "inat21",
-    "classification_output":  "output/classification.csv",
     "confidence":  0.4,
     "verbose":  false,
-    "exiftool_path":  "C:\\exiftool\\exiftool.exe"
+    "model_dir": "models",
+    "exiftool_path": "C:/exiftool/exiftool.exe",
+   "csv_output": "output/discovered-species.csv"
+
 }

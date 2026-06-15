@@ -6,18 +6,18 @@ import sys
 
 
 @pytest.mark.order(1)
-@pytest.mark.integration  # Mark as integration test (requires network access)
+@pytest.mark.integration
 def test_model_downloader(tmp_path):
     """
     Integration test: Downloads actual models from HuggingFace Hub.
-    This test requires internet access and will download large files.
-    Run with: pytest -m integration
+    Requires internet. Run with: pytest -m integration
     """
+
     # Temporary model directory for this test
     model_dir = tmp_path / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create settings.json pointing to the temp model directory
+    # Create a settings.json exactly like the real code expects
     settings = {
         "model_type": "inat",
         "model_path": str(model_dir)
@@ -25,13 +25,18 @@ def test_model_downloader(tmp_path):
     settings_path = tmp_path / "settings.json"
     settings_path.write_text(json.dumps(settings))
 
-    # Run the downloader module
+    # Run the downloader with ONLY the settings.json path
     subprocess.run(
-        [sys.executable, "-m", "wildlife_classifier.model_downloader", str(settings_path)],
-        check=True
+        [
+            sys.executable,
+            "-m",
+            "wildlife_classifier.model_downloader",
+            str(settings_path),
+        ],
+        check=True,
     )
 
-    # Expected files from ModelDownloader.download_all()
+    # Expected files
     expected = [
         "yolov9-c.pt",
         "model.safetensors",
@@ -42,3 +47,6 @@ def test_model_downloader(tmp_path):
 
     for fname in expected:
         assert (model_dir / fname).exists(), f"{fname} missing"
+
+    # Ensure nothing leaked into project root
+    assert not Path("yolov9-c.pt").exists()

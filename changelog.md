@@ -39,3 +39,16 @@ This release establishes the v1 architecture baseline.
 ### Fixed
 
 - Removed accidentally committed test artefacts (JPG/XMP/log files).
+
+## [dev] - 2026-05-28
+
+### In-progress work by GitHub Copilot
+
+- Fix SpeciesClassifier model loading: completed
+- Add preview generation in `pipeline.py`: completed
+- Make `XMPWriter` detect ExifTool and be test-friendly: in-progress
+- Add CLI entrypoint for `pipeline.py`: completed
+- Produce XMP sidecars for sample `test_images` (integration): not-started
+- Validate full model/taxonomy download path (integration): not-started
+
+Notes: Changes are committed to the working tree; unit tests for `species_classifier` and `pipeline` passed. `test_xmp_writer.py` and the sample-image integration test are being fixed next.

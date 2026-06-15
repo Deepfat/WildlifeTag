@@ -173,10 +173,78 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "iNat 2021 model + taxonomy downloaded"
 
 # -----------------------------
-# 8. Final message
+# 8. Check Ollama (for taxonomy grouping inference - OPTIONAL)
 # -----------------------------
+Write-Host "`nChecking Ollama (optional, for taxonomy inference)..."
+
+# Check if Ollama is already installed
+$ollamaPath = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+$ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
+
+if ((Test-Path $ollamaPath) -or $ollamaCmd) {
+    Write-Host "Ollama already installed ✓"
+}
+else {
+    Write-Host "Ollama not found - attempting installation..."
+    
+    $ollamaUrl = "https://ollama.ai/download/OllamaSetup.exe"
+    $installerPath = Join-Path $env:TEMP "OllamaSetup.exe"
+    
+    try {
+        Write-Host "Downloading Ollama installer..."
+        Invoke-WebRequest -Uri $ollamaUrl -OutFile $installerPath -ErrorAction Stop
+        
+        Write-Host "Running Ollama installer..."
+        Start-Process -FilePath $installerPath -Wait
+        
+        # Verify installation
+        Start-Sleep -Seconds 3
+        if ((Test-Path $ollamaPath) -or (Get-Command ollama -ErrorAction SilentlyContinue)) {
+            Write-Host "Ollama installed successfully ✓"
+        }
+        else {
+            Write-Warning "Ollama installation may have failed. Please install manually from https://ollama.ai"
+        }
+    }
+    catch {
+        Write-Warning "Failed to install Ollama automatically: $_"
+        Write-Host "Please install manually from https://ollama.ai"
+    }
+}
+
+# If Ollama is available, pull the Mistral model
+if ((Test-Path $ollamaPath) -or (Get-Command ollama -ErrorAction SilentlyContinue)) {
+    Write-Host "Checking for Mistral model..."
+    try {
+        $models = ollama list 2>$null
+        if ($models -match "mistral") {
+            Write-Host "Mistral model already available ✓"
+        }
+        else {
+            Write-Host "Pulling Mistral model (this may take a few minutes)..."
+            ollama pull mistral 2>$null
+            Write-Host "Mistral model ready ✓"
+        }
+    }
+    catch {
+        Write-Warning "Could not pull Mistral model. You can do this manually later: ollama pull mistral"
+    }
+}
+else {
+    Write-Host ""
+    Write-Host "Ollama is optional. To enable free taxonomy inference:"
+    Write-Host "  1. Download from https://ollama.ai"
+    Write-Host "  2. Run the installer"
+    Write-Host "  3. Start Ollama: ollama serve"
+    Write-Host "  4. Build taxonomy: python -m taxonomy.taxonomy_builder build-groupings"
+    Write-Host ""
+}
+
+# --------------------------
+# 9. Final message
+# --------------------------
 Write-Host "`n========================================="
 Write-Host " Installation complete."
 Write-Host " You can now run:"
-Write-Host "   ./wildlifetag.ps1"
+Write-Host "   ./wildlife_tag.ps1"
 Write-Host "========================================="

@@ -22,10 +22,14 @@ tqdm==4.66.2
 rich==13.7.1
 huggingface_hub==0.23.4
 
+# OpenAI
+openai==0.28.1
+
+
 # Testing
 pytest==9.0.3
 pytest-order==1.4.0
 
-
+timm==1.0.27
 
 

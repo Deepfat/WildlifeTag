@@ -2,10 +2,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
-from PIL import Image
-from ultralytics import YOLO
-import torch
-
 from .logger import Logger
 
 
@@ -28,6 +24,13 @@ class YoloDetector:
         device: Optional[str] = None,
     ) -> None:
         self.conf = conf
+        # Lazy-import heavy ML libraries
+        try:
+            import torch
+            from ultralytics import YOLO
+        except Exception as e:
+            raise RuntimeError("Missing required YOLO dependencies") from e
+
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.model = YOLO(model_path)
         self.model.to(self.device)
@@ -94,6 +97,9 @@ class YoloDetector:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         try:
+            # Lazy-import PIL
+            from PIL import Image
+
             with Image.open(jpeg_path) as img:
                 x1, y1, x2, y2 = best_det["bbox"]
                 x1 = max(0, int(x1))

@@ -82,9 +82,13 @@ def test_upsert_subject_merge(mock_et, tmp_path):
     args = mock_instance.execute.call_args[0]
 
     assert "-xmp:Subject=" in args
+    assert "-Subject=" in args
     assert "-xmp:Subject+=animal" in args
+    assert "-Subject+=animal" in args
     assert "-xmp:Subject+=bird" in args
+    assert "-Subject+=bird" in args
     assert "-xmp:Subject+=wildlife" in args
+    assert "-Subject+=wildlife" in args
 
 
 @patch("exiftool.ExifTool")
@@ -119,20 +123,57 @@ def test_upsert_taxonomy_and_acdsee(mock_et, tmp_path):
 
     args = mock_instance.execute.call_args[0]
 
-    # ACDSee category path
-    assert "-acdsee:Categories=Animalia&gt;Chordata&gt;Aves&gt;Strigiformes&gt;Strigidae&gt;Bubo&gt;Bubo bubo" in args
+    # Only scientific name (species) is written, no taxonomy hierarchy
+    assert "-Keywords+=Bubo bubo" in args
+    assert "-Subject+=Bubo bubo" in args
+    assert "-xmp:Subject+=Bubo bubo" in args
+    assert "-XMP:CreatorTool=iNaturalist" in args
+    
+    # Hierarchy should NOT be present
+    assert not any("-Categories=" in str(arg) for arg in args)
+    assert not any("-HierarchicalSubject=" in str(arg) for arg in args)
+    assert not any("-xmp:HierarchicalSubject=" in str(arg) for arg in args)
 
-    # Wildlife fields
-    assert "-XMP-wildlife:Species=Bubo bubo" in args
-    assert "-XMP-wildlife:Genus=Bubo" in args
-    assert "-XMP-wildlife:Family=Strigidae" in args
-    assert "-XMP-wildlife:Order=Strigiformes" in args
-    assert "-XMP-wildlife:Class=Aves" in args
-    assert "-XMP-wildlife:Phylum=Chordata" in args
-    assert "-XMP-wildlife:Kingdom=Animalia" in args
-    assert "-XMP-wildlife:Confidence=0.8765" in args
-    assert "-XMP-wildlife:Classifier=iNaturalist" in args
-    assert "-XMP-wildlife:Detector=YOLOv9" in args
+
+@patch("exiftool.ExifTool")
+def test_upsert_taxonomy_with_common_name(mock_et, tmp_path):
+    raw = tmp_path / "img.CR3"
+    raw.write_bytes(b"fake")
+
+    mock_instance = MagicMock()
+    mock_instance.execute_json.return_value = [{}]
+    mock_et.return_value.__enter__.return_value = mock_instance
+
+    logger = fake_logger()
+    writer = XMPWriter()
+
+    taxonomy = {
+        "kingdom": "Animalia",
+        "phylum": "Chordata",
+        "class": "Aves",
+        "order": "Passeriformes",
+        "family": "Estrildidae",
+        "genus": "Uraeginthus",
+        "species": "Uraeginthus angolensis",
+        "common_name": "Blue-capped cordon-bleu",
+        "confidence": 0.9008,
+    }
+
+    writer.upsert_xmp(
+        raw_path=raw,
+        coarse_tags=["bird"],
+        taxonomy=taxonomy,
+        logger=logger,
+    )
+
+    args = mock_instance.execute.call_args[0]
+
+    assert "-Keywords+=Uraeginthus angolensis" in args
+    assert "-Subject+=Uraeginthus angolensis" in args
+    assert "-xmp:Subject+=Uraeginthus angolensis" in args
+    assert "-Keywords+=Blue-capped cordon-bleu" in args
+    assert "-Subject+=Blue-capped cordon-bleu" in args
+    assert "-xmp:Subject+=Blue-capped cordon-bleu" in args
 
 
 @patch("exiftool.ExifTool")
@@ -158,6 +199,36 @@ def test_upsert_no_changes(mock_et, tmp_path):
 
     mock_instance.execute.assert_not_called()
     logger.info.assert_any_call("No XMP changes required")
+
+
+def test_patch_acdsee_categories_produces_rdf_bag(tmp_path):
+    xmp = tmp_path / "img.xmp"
+    xmp.write_text(
+        """<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:acdsee="http://ns.acdsee.com/iptc/1.0/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:RDF>
+    <rdf:Description rdf:about="">
+      <acdsee:categories>Animalia>Chordata>Aves>Passeriformes>Estrildidae>Uraeginthus>Uraeginthus angolensis</acdsee:categories>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+"""
+    )
+
+    logger = fake_logger()
+    writer = XMPWriter()
+    writer._patch_acdsee_categories(
+        xmp_path=xmp,
+        species_names=["Uraeginthus angolensis", "Blue-capped cordon-bleu"],
+        logger=logger,
+    )
+
+    content = xmp.read_text()
+    assert "<rdf:li>Uraeginthus angolensis</rdf:li>" in content
+    assert "<rdf:li>Blue-capped cordon-bleu</rdf:li>" in content
+    assert "<acdsee:categories>" in content
+    assert "</rdf:Bag>" in content
 
 
 @patch("exiftool.ExifTool")

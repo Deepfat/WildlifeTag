@@ -33,3 +33,23 @@ def test_species_classifier_has_predict_method(tmp_path):
 
             assert hasattr(clf, "predict")
             assert callable(clf.predict)
+
+
+def test_species_classifier_preserves_taxonomy_order(tmp_path):
+    taxonomy = {
+        "Zebra fritillary": {"genus": "Zebra", "family": "Fritillidae"},
+        "Aardvark sparrow": {"genus": "Aardvark", "family": "Sparridae"},
+    }
+
+    (tmp_path / "taxonomy_flat.json").write_text(json.dumps(taxonomy))
+    (tmp_path / "model.safetensors").write_text("dummy")
+
+    with patch("wildlife_classifier.species_classifier.load_file", return_value={}):
+        with patch("wildlife_classifier.species_classifier.torch.hub.load") as mock_hub:
+            mock_model = MagicMock()
+            mock_model.eval = MagicMock()
+            mock_model.load_state_dict = MagicMock()
+            mock_hub.return_value = mock_model
+
+            clf = SpeciesClassifier(tmp_path)
+            assert clf.species_list[0] == "Zebra fritillary"

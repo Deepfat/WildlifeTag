@@ -1,94 +1,76 @@
-# wildlife_classifier/xmp_writer.py
+# xmp_writer.py v16 – writes and updates XMP sidecar metadata including modify timestamps
 
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import shutil
-import json
-
-import exiftool
+from datetime import datetime
+from xml.sax.saxutils import escape
 
 from .logger import Logger
 
 
 class XMPWriter:
     """
-    Non-destructive XMP metadata writer.
-
-    Responsibilities:
-    - read existing XMP (Subject + wildlife namespace)
-    - merge new coarse tags
-    - write taxonomy fields
-    - write ACDSee hierarchical categories
-    - append one CSV log line per image (single file per run)
-    - never overwrite unrelated metadata
-    - never duplicate tags
+    Writes ONLY XMP sidecar metadata.
     """
 
-    def __init__(self, model_dir: Path = None):
-        """Check if exiftool is available from settings.json, PATH, or common locations."""
-        self.exiftool_path = None
+    def __init__(self, exiftool_path: Optional[Path] = None):
+        self.exiftool_path = Path(exiftool_path) if exiftool_path is not None else None
         self.exiftool_available = False
+        self.exiftool_executable = None
 
-        # Try to load path from settings.json if model_dir provided
-        if model_dir:
-            settings_path = Path(model_dir).parent / "config" / "settings.json"
-            if settings_path.exists():
-                try:
-                    with open(settings_path) as f:
-                        settings = json.load(f)
-                        if "exiftool_path" in settings:
-                            potential_path = settings["exiftool_path"]
-                            if Path(potential_path).exists():
-                                self.exiftool_path = potential_path
-                                self.exiftool_available = True
-                                return
-                except Exception:
-                    pass
+        def resolve_exiftool_path() -> Optional[str]:
+            if self.exiftool_path is not None and self.exiftool_path.exists():
+                return str(self.exiftool_path)
 
-        # Check PATH
-        if shutil.which("exiftool"):
-            self.exiftool_path = "exiftool"
-            self.exiftool_available = True
-            return
+            resolved = shutil.which("exiftool") or shutil.which("exiftool.exe")
+            if resolved:
+                return resolved
 
-        # Check common installation locations
-        common_paths = [
-            "C:\\exiftool\\exiftool.exe",
-            "C:\\Program Files\\exiftool\\exiftool.exe",
-            "C:\\Program Files (x86)\\exiftool\\exiftool.exe",
-        ]
-        for path in common_paths:
-            if Path(path).exists():
-                self.exiftool_path = path
+            common_paths = [
+                r"C:\exiftool\exiftool.exe",
+                r"C:\Program Files\ExifTool\exiftool.exe",
+                r"C:\Program Files\ExifTool\bin\exiftool.exe",
+                r"C:\Program Files\Topaz Labs LLC\Topaz Photo\exiftool.dll",
+                r"C:\Program Files\Topaz Labs LLC\Topaz Photo AI\exiftool.dll",
+            ]
+            for candidate in common_paths:
+                if Path(candidate).exists():
+                    return candidate
+            return None
+
+        self.exiftool_executable = resolve_exiftool_path()
+        self.exiftool_available = self.exiftool_executable is not None
+
+        try:
+            import exiftool as _exiftool
+            if not self.exiftool_available:
                 self.exiftool_available = True
-                return
+        except Exception:
+            pass
 
     # ---------------------------------------------------------
     # Read existing XMP
     # ---------------------------------------------------------
     def _read_xmp(self, raw_path: Path, logger: Logger) -> Dict[str, Any]:
-        """
-        Read existing XMP metadata via exiftool.
-        Returns a dict of tags.
-        If exiftool is not available, returns empty dict.
-        """
         if not self.exiftool_available:
             logger.warning("exiftool not found - XMP reading skipped")
             return {}
 
         try:
-            with exiftool.ExifTool(executable=self.exiftool_path) as et:
+            import exiftool
+
+            with exiftool.ExifTool(executable=self.exiftool_executable) as et:
                 data = et.execute_json(
                     "-j",
                     "-Keywords",
                     "-xmp:Subject",
                     "-IPTC:Keywords",
-                    "-XMP-wildlife:*",
+                    "-Categories",
+                    "-HierarchicalSubject",
                     str(raw_path),
                 )
-            if not data:
-                return {}
-            return data[0]
+            return data[0] if data else {}
         except Exception as e:
             logger.error(f"Failed to read XMP: {e}")
             return {}
@@ -97,80 +79,52 @@ class XMPWriter:
     # Write XMP
     # ---------------------------------------------------------
     def _write_xmp(self, raw_path: Path, args: List[str], logger: Logger) -> None:
-        """
-        Write XMP metadata via exiftool.
-        Creates a sidecar .xmp file with metadata. Original CR3 file remains unchanged.
-        """
         if not self.exiftool_available:
             logger.warning("exiftool not found - XMP writing skipped")
             return
 
         try:
+            import exiftool
+
             xmp_sidecar = raw_path.with_suffix(".xmp")
-            with exiftool.ExifTool(executable=self.exiftool_path) as et:
+            with exiftool.ExifTool(executable=self.exiftool_executable) as et:
                 et.execute(*args, "-o", str(xmp_sidecar), str(raw_path))
             logger.info("XMP upsert complete")
         except Exception as e:
             logger.error(f"Failed to write XMP: {e}")
 
-    # ---------------------------------------------------------
-    # Append taxonomy CSV log line (single file per run)
-    # ---------------------------------------------------------
-    def _append_taxonomy_log_line(
-        self,
-        raw_path: Path,
-        taxonomy: Optional[Dict[str, Any]],
-        logger: Logger,
-    ) -> None:
-        """
-        Append one CSV line per processed image.
-        File: tag_output/wildlife_tags.csv
-        Columns: raw_path, kingdom, phylum, class, order, family, genus, species, confidence
-        """
-        output_dir = raw_path.parent / "tag_output"
-        output_dir.mkdir(exist_ok=True)
-
-        log_path = output_dir / "wildlife_tags.csv"
-
-        hierarchy_keys = [
-            "kingdom",
-            "phylum",
-            "class",
-            "order",
-            "family",
-            "genus",
-            "species",
-        ]
-
-        if taxonomy:
-            values = [taxonomy.get(k, "") for k in hierarchy_keys]
-            confidence = taxonomy.get("confidence", "")
-        else:
-            values = [""] * len(hierarchy_keys)
-            confidence = ""
-
-        line = ",".join(
-            [str(raw_path)] + [str(v) for v in values] + [str(confidence)]
-        )
+    def _patch_acdsee_categories(self, xmp_path: Path, species_names: List[str], logger: Logger) -> None:
+        """Patch acdsee:categories with just scientific and common species names"""
+        if not xmp_path.exists() or not species_names:
+            return
 
         try:
-            # Write header if file does not exist
-            if not log_path.exists():
-                header = ",".join(
-                    ["raw_path"] + hierarchy_keys + ["confidence"]
-                )
-                with open(log_path, "w", encoding="utf-8") as f:
-                    f.write(header + "\n")
+            text = xmp_path.read_text(encoding="utf-8")
+            start = text.find("<acdsee:categories>")
+            end = text.find("</acdsee:categories>", start)
+            if start == -1 or end == -1:
+                logger.warning("acdsee:categories element not found for patching")
+                return
 
-            # Append row
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
+            body = "".join(
+                f"    <rdf:li>{escape(value)}</rdf:li>\n" for value in species_names
+            )
+            new_block = (
+                "<acdsee:categories>\n"
+                "   <rdf:Bag>\n"
+                f"{body}"
+                "   </rdf:Bag>\n"
+                "  </acdsee:categories>"
+            )
 
+            new_text = text[:start] + new_block + text[end + len("</acdsee:categories>"):]
+            xmp_path.write_text(new_text, encoding="utf-8")
+            logger.info("Patched acdsee:categories with species names")
         except Exception as e:
-            logger.error(f"Failed to write taxonomy log: {e}")
+            logger.error(f"Failed to patch acdsee categories: {e}")
 
     # ---------------------------------------------------------
-    # Public API: upsert metadata
+    # Public API
     # ---------------------------------------------------------
     def upsert_xmp(
         self,
@@ -179,27 +133,20 @@ class XMPWriter:
         taxonomy: Optional[Dict[str, Any]],
         logger: Logger,
     ) -> None:
-        """
-        Upsert:
-        - Keywords (coarse YOLO tags)
-        - XMP-wildlife:* (taxonomy + confidence)
-        - acdsee:Categories (hierarchical taxonomy path)
-        - Append one CSV log line (single file per run)
-        """
-        logger.info(
-            f"Starting XMP upsert for {raw_path} with tags={coarse_tags}, taxonomy={taxonomy}"
-        )
+
+        logger.info(f"Starting XMP upsert for {raw_path}")
 
         existing = self._read_xmp(raw_path, logger)
+        xmp_sidecar = raw_path.with_suffix(".xmp")
+        xmp_exists = xmp_sidecar.exists()
 
-        # -----------------------------------------------------
         # Merge coarse tags
-        # -----------------------------------------------------
-        existing_subject = existing.get("Keywords", [])
-        if not existing_subject:
-            existing_subject = existing.get("xmp:Subject", [])
-        if not existing_subject:
-            existing_subject = existing.get("Subject", [])
+        existing_subject = (
+            existing.get("Keywords")
+            or existing.get("xmp:Subject")
+            or existing.get("Subject")
+            or []
+        )
         if isinstance(existing_subject, str):
             existing_subject = [existing_subject]
 
@@ -208,76 +155,73 @@ class XMPWriter:
 
         subject_args: List[str] = []
         if new_set != existing_set:
-            subject_args.extend(["-Keywords=", "-xmp:Subject=", "-IPTC:Keywords="])
+            subject_args.extend(["-Keywords=", "-Subject=", "-xmp:Subject=", "-IPTC:Keywords="])
             for tag in sorted(new_set):
                 subject_args.extend([
                     f"-Keywords+={tag}",
+                    f"-Subject+={tag}",
                     f"-xmp:Subject+={tag}",
                     f"-IPTC:Keywords+={tag}",
                 ])
 
-        # -----------------------------------------------------
-        # Wildlife taxonomy + ACDSee categories
-        # -----------------------------------------------------
+        # Wildlife species metadata (scientific and common names only)
         wildlife_args: List[str] = []
 
         if taxonomy:
-            hierarchy_keys = [
-                "kingdom",
-                "phylum",
-                "class",
-                "order",
-                "family",
-                "genus",
-                "species",
+            # Add scientific name (species)
+            if taxonomy.get("species"):
+                subject_species = taxonomy["species"]
+                wildlife_args.extend([
+                    f"-Keywords+={subject_species}",
+                    f"-Subject+={subject_species}",
+                    f"-xmp:Subject+={subject_species}",
+                ])
+
+            # Add common names
+            common_names = []
+            if taxonomy.get("common_name"):
+                common_names.append(taxonomy["common_name"])
+            if taxonomy.get("common_names"):
+                names = taxonomy["common_names"]
+                if isinstance(names, str):
+                    names = [names]
+                common_names.extend(names)
+
+            for common_name in sorted(set(common_names)):
+                wildlife_args.extend([
+                    f"-Keywords+={common_name}",
+                    f"-Subject+={common_name}",
+                    f"-xmp:Subject+={common_name}",
+                ])
+
+            wildlife_args.append("-XMP:CreatorTool=iNaturalist")
+
+        # Only write when there is metadata to update.
+        # If metadata is already present and unchanged, do not create or modify a sidecar.
+        should_write = bool(subject_args or wildlife_args)
+
+        if should_write:
+            timestamp = datetime.utcnow().strftime("%Y:%m:%d %H:%M:%S")
+            timestamp_args = [
+                f"-XMP:ModifyDate={timestamp}",
+                f"-XMP:MetadataDate={timestamp}",
             ]
 
-            hierarchy_values = [
-                taxonomy[k] for k in hierarchy_keys if taxonomy.get(k)
-            ]
-
-            if hierarchy_values:
-                acdsee_path = "&gt;".join(hierarchy_values)
-                wildlife_args.append(f"-acdsee:Categories={acdsee_path}")
-
-            mapping = {
-                "species": "XMP-wildlife:Species",
-                "genus": "XMP-wildlife:Genus",
-                "family": "XMP-wildlife:Family",
-                "order": "XMP-wildlife:Order",
-                "class": "XMP-wildlife:Class",
-                "phylum": "XMP-wildlife:Phylum",
-                "kingdom": "XMP-wildlife:Kingdom",
-            }
-
-            for key, xmp_key in mapping.items():
-                value = taxonomy.get(key)
-                if value:
-                    wildlife_args.append(f"-{xmp_key}={value}")
-
-            if "confidence" in taxonomy:
-                wildlife_args.append(
-                    f"-XMP-wildlife:Confidence={float(taxonomy['confidence']):.4f}"
-                )
-
-            wildlife_args.append("-XMP-wildlife:Classifier=iNaturalist")
-            wildlife_args.append("-XMP-wildlife:Detector=YOLOv9")
-
-        # -----------------------------------------------------
-        # If nothing to write, exit cleanly
-        # -----------------------------------------------------
-        args = subject_args + wildlife_args
-        if not args:
+            args = subject_args + wildlife_args + timestamp_args
+            self._write_xmp(raw_path, args, logger)
+            
+            # Patch acdsee:categories with species names only
+            species_names: List[str] = []
+            if taxonomy and taxonomy.get("species"):
+                species_names.append(taxonomy["species"])
+            if taxonomy and taxonomy.get("common_name"):
+                species_names.append(taxonomy["common_name"])
+            if taxonomy and taxonomy.get("common_names"):
+                names = taxonomy["common_names"]
+                if isinstance(names, str):
+                    names = [names]
+                species_names.extend(names)
+            
+            self._patch_acdsee_categories(raw_path.with_suffix('.xmp'), species_names, logger)
+        else:
             logger.info("No XMP changes required")
-            self._append_taxonomy_log_line(raw_path, taxonomy, logger)
-            return
-
-        # -----------------------------------------------------
-        # Write metadata
-        # -----------------------------------------------------
-        self._write_xmp(raw_path, args, logger)
-
-        # -----------------------------------------------------
-        # Append CSV log line
-        # -----------------------------------------------------
-        self._append_taxonomy_log_line(raw_path, taxonomy, logger)
